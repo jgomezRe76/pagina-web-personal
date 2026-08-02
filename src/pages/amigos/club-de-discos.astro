@@ -96,6 +96,16 @@ const CSV_MENDANA =
   .tab-btn:hover {
     background: rgba(255, 255, 255, 0.05);
   }
+
+  /* Los <select> nativos no heredan el tema oscuro del sitio; sin esto el
+     desplegable sale con fondo blanco y texto claro, ilegible. */
+  .filter-select {
+    color-scheme: dark;
+  }
+  .filter-select option {
+    background-color: #18181b; /* zinc-900 */
+    color: #e4e4e7; /* zinc-200 */
+  }
 </style>
 
 <script define:vars={{ CSV_ALLUPS, CSV_MENDANA }}>
@@ -314,27 +324,72 @@ const CSV_MENDANA =
     }
     artProcessing = false;
   }
-  async function resolveArtwork({ key, artist, album, imgEl, placeholderEl }) {
-    if (!imgEl.isConnected) return;
-    if (Object.prototype.hasOwnProperty.call(coverCache, key)) {
-      applyArtwork(imgEl, placeholderEl, coverCache[key]);
-      return;
-    }
+  // Fuentes de portadas, en orden. iTunes suele ser rápido y cubre lo más
+  // mainstream; Deezer y Discogs rescatan bastante de lo más indie/raro que
+  // no está en Apple Music.
+  async function tryItunes(artist, album) {
     try {
       const term = encodeURIComponent(`${artist} ${album}`);
       const data = await jsonpRequest(
         `https://itunes.apple.com/search?term=${term}&entity=album&limit=1`
       );
       const first = data && data.results && data.results[0];
-      const url = first ? first.artworkUrl100.replace('100x100bb', '400x400bb') : null;
-      coverCache[key] = url;
-      saveCache();
-      applyArtwork(imgEl, placeholderEl, url);
+      return first ? first.artworkUrl100.replace('100x100bb', '400x400bb') : null;
     } catch {
-      coverCache[key] = null;
-      saveCache();
-      applyArtwork(imgEl, placeholderEl, null);
+      return null;
     }
+  }
+
+  async function tryDeezer(artist, album) {
+    try {
+      const qualified = encodeURIComponent(`artist:"${artist}" album:"${album}"`);
+      let res = await fetch(`https://api.deezer.com/search/album?q=${qualified}&limit=1`);
+      let data = await res.json();
+      let hit = data && data.data && data.data[0];
+      if (!hit) {
+        const loose = encodeURIComponent(`${artist} ${album}`);
+        res = await fetch(`https://api.deezer.com/search/album?q=${loose}&limit=1`);
+        data = await res.json();
+        hit = data && data.data && data.data[0];
+      }
+      return hit ? hit.cover_big || hit.cover_medium || null : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function tryDiscogs(artist, album) {
+    try {
+      const q = encodeURIComponent(`${artist} ${album}`);
+      const res = await fetch(
+        `https://api.discogs.com/database/search?q=${q}&type=release&per_page=1`
+      );
+      const data = await res.json();
+      const hit = data && data.results && data.results[0];
+      return hit ? hit.cover_image || hit.thumb || null : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function resolveArtwork({ key, artist, album, imgEl, placeholderEl }) {
+    if (!imgEl.isConnected) return;
+    if (Object.prototype.hasOwnProperty.call(coverCache, key)) {
+      applyArtwork(imgEl, placeholderEl, coverCache[key]);
+      return;
+    }
+    let url = await tryItunes(artist, album);
+    if (!url) {
+      await sleep(150);
+      url = await tryDeezer(artist, album);
+    }
+    if (!url) {
+      await sleep(150);
+      url = await tryDiscogs(artist, album);
+    }
+    coverCache[key] = url;
+    saveCache();
+    applyArtwork(imgEl, placeholderEl, url);
   }
   function applyArtwork(imgEl, placeholderEl, url) {
     if (!url || !imgEl.isConnected) return;
