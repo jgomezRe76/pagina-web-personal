@@ -15,27 +15,47 @@ const CSV_MENDANA =
       Ranking en vivo, sincronizado con la hoja de Sheets del club.
     </p>
 
-    <!-- Tabs + búsqueda -->
-    <div class="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <div class="flex gap-2" role="tablist">
-        <button
-          id="tab-allups-btn"
-          type="button"
-          class="tab-btn rounded-md px-4 py-2 text-sm font-medium transition-colors"
-          aria-selected="true"
-        >
-          ALL UPS
-        </button>
-        <button
-          id="tab-mendana-btn"
-          type="button"
-          class="tab-btn rounded-md px-4 py-2 text-sm font-medium transition-colors"
-          aria-selected="false"
-        >
-          Mendaña &amp; yo
-        </button>
-      </div>
-      <div class="relative w-full sm:w-64">
+    <!-- Tabs -->
+    <div class="mt-8 flex gap-2" role="tablist">
+      <button
+        id="tab-allups-btn"
+        type="button"
+        class="tab-btn rounded-md px-4 py-2 text-sm font-medium transition-colors"
+        aria-selected="true"
+      >
+        ALL UPS
+      </button>
+      <button
+        id="tab-mendana-btn"
+        type="button"
+        class="tab-btn rounded-md px-4 py-2 text-sm font-medium transition-colors"
+        aria-selected="false"
+      >
+        Mendaña &amp; yo
+      </button>
+    </div>
+
+    <!-- Filtros -->
+    <div class="mt-4 flex flex-wrap items-center gap-2">
+      <select
+        id="filter-year"
+        class="filter-select rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-200 focus:border-indigo-400/50 focus:outline-none"
+      >
+        <option value="">Año: todos</option>
+      </select>
+      <select
+        id="filter-artist"
+        class="filter-select rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-200 focus:border-indigo-400/50 focus:outline-none"
+      >
+        <option value="">Artista: todos</option>
+      </select>
+      <select
+        id="filter-proposed"
+        class="filter-select rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-200 focus:border-indigo-400/50 focus:outline-none"
+      >
+        <option value="">Propuesto por: todos</option>
+      </select>
+      <div class="relative flex-1 sm:min-w-[16rem] sm:flex-none">
         <input
           id="search-input"
           type="text"
@@ -43,6 +63,13 @@ const CSV_MENDANA =
           class="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-indigo-400/50 focus:outline-none"
         />
       </div>
+      <button
+        id="clear-filters-btn"
+        type="button"
+        class="rounded-md px-3 py-2 text-xs font-medium text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-300"
+      >
+        Limpiar filtros
+      </button>
     </div>
 
     <p id="results-count" class="mt-4 font-mono text-xs text-zinc-600"></p>
@@ -137,10 +164,35 @@ const CSV_MENDANA =
     return n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '').replace('.', ',');
   }
 
+  // Algunos discos están duplicados en la hoja (mismo disco+artista cargado dos
+  // veces, a veces en años distintos). Los agrupamos y nos quedamos con uno solo.
+  function normalizePart(s) {
+    return (s || '')
+      .toLowerCase()
+      .replace(/\(.*?\)/g, '')
+      .replace(/[^a-z0-9]/g, '')
+      .trim();
+  }
+  function dedupe(list) {
+    const seen = new Set();
+    const out = [];
+    for (const item of list) {
+      const key = `${normalizePart(item.artist)}::${normalizePart(item.album)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+    }
+    return out;
+  }
+
   // ---------- Data loading ----------
   const state = {
     tab: 'allups',
     search: '',
+    filters: {
+      allups: { year: '', artist: '', proposed: '' },
+      mendana: { year: '', artist: '' },
+    },
     allups: [],
     mendana: [],
     loaded: false,
@@ -161,33 +213,36 @@ const CSV_MENDANA =
         fetchCSV(CSV_MENDANA),
       ]);
 
-      state.allups = allupsRaw
-        .map((r) => ({
-          album: r['Disco propuesto'] || r['Disco'] || '',
-          artist: r['Intérprete'] || '',
-          proposedBy: r['Propuesto'] || '',
-          year: r['Año'] || '',
-          notaRaw: r['Nota'] || '',
-          nota: parseScore(r['Nota']),
-        }))
-        .filter((r) => r.album && r.nota !== null)
-        .sort((a, b) => b.nota - a.nota);
+      state.allups = dedupe(
+        allupsRaw
+          .map((r) => ({
+            album: r['Disco propuesto'] || r['Disco'] || '',
+            artist: r['Intérprete'] || '',
+            proposedBy: r['Propuesto'] || '',
+            year: r['Año'] || '',
+            notaRaw: r['Nota'] || '',
+            nota: parseScore(r['Nota']),
+          }))
+          .filter((r) => r.album && r.nota !== null)
+      ).sort((a, b) => b.nota - a.nota);
 
-      state.mendana = mendanaRaw
-        .map((r) => ({
-          album: r['Disco'] || '',
-          artist: r['Intérprete'] || '',
-          votosMendana: r['Votos/Mendaña'] || '',
-          votosJaime: r['Votos/Jaime'] || '',
-          year: r['Año'] || '',
-          notaRaw: r['Nota'] || '',
-          nota: parseScore(r['Nota']),
-        }))
-        .filter((r) => r.album && r.nota !== null)
-        .sort((a, b) => b.nota - a.nota);
+      state.mendana = dedupe(
+        mendanaRaw
+          .map((r) => ({
+            album: r['Disco'] || '',
+            artist: r['Intérprete'] || '',
+            votosMendana: r['Votos/Mendaña'] || '',
+            votosJaime: r['Votos/Jaime'] || '',
+            year: r['Año'] || '',
+            notaRaw: r['Nota'] || '',
+            nota: parseScore(r['Nota']),
+          }))
+          .filter((r) => r.album && r.nota !== null)
+      ).sort((a, b) => b.nota - a.nota);
 
       state.loaded = true;
       statusEl.classList.add('hidden');
+      populateFilterOptions();
       render();
     } catch (err) {
       statusEl.textContent =
@@ -356,18 +411,61 @@ const CSV_MENDANA =
     return state.tab === 'allups' ? state.allups : state.mendana;
   }
 
+  function uniqueSorted(values) {
+    return [...new Set(values.filter((v) => v && v.trim() !== ''))].sort((a, b) =>
+      a.localeCompare(b, 'es')
+    );
+  }
+
+  function fillSelect(selectEl, values, placeholder, selectedValue) {
+    const options = [`<option value="">${placeholder}</option>`].concat(
+      values.map((v) => `<option value="${escapeAttr(v)}">${escapeHTML(v)}</option>`)
+    );
+    selectEl.innerHTML = options.join('');
+    selectEl.value = selectedValue || '';
+  }
+
+  function populateFilterOptions() {
+    const dataset = currentDataset();
+    const filters = state.filters[state.tab];
+    const years = uniqueSorted(dataset.map((i) => i.year)).sort((a, b) => b.localeCompare(a));
+    const artists = uniqueSorted(dataset.map((i) => i.artist));
+
+    fillSelect(document.getElementById('filter-year'), years, 'Año: todos', filters.year);
+    fillSelect(
+      document.getElementById('filter-artist'),
+      artists,
+      'Artista: todos',
+      filters.artist
+    );
+
+    const proposedWrap = document.getElementById('filter-proposed');
+    if (state.tab === 'allups') {
+      const proposed = uniqueSorted(dataset.map((i) => i.proposedBy));
+      fillSelect(proposedWrap, proposed, 'Propuesto por: todos', filters.proposed);
+      proposedWrap.classList.remove('hidden');
+    } else {
+      proposedWrap.classList.add('hidden');
+    }
+  }
+
   function render() {
     if (!state.loaded) return;
     const container = document.getElementById('cards-container');
     const countEl = document.getElementById('results-count');
     const term = state.search.trim().toLowerCase();
+    const filters = state.filters[state.tab];
     const dataset = currentDataset();
-    const filtered = term
-      ? dataset.filter(
-          (i) =>
-            i.album.toLowerCase().includes(term) || i.artist.toLowerCase().includes(term)
-        )
-      : dataset;
+
+    const filtered = dataset.filter((i) => {
+      if (term && !i.album.toLowerCase().includes(term) && !i.artist.toLowerCase().includes(term))
+        return false;
+      if (filters.year && i.year !== filters.year) return false;
+      if (filters.artist && i.artist !== filters.artist) return false;
+      if (state.tab === 'allups' && filters.proposed && i.proposedBy !== filters.proposed)
+        return false;
+      return true;
+    });
 
     countEl.textContent = `${filtered.length} discos`;
 
@@ -384,6 +482,8 @@ const CSV_MENDANA =
     document
       .getElementById('tab-mendana-btn')
       .setAttribute('aria-selected', String(tab === 'mendana'));
+    document.getElementById('search-input').value = state.search;
+    populateFilterOptions();
     render();
   }
 
@@ -398,6 +498,26 @@ const CSV_MENDANA =
       state.search = value;
       render();
     }, 150);
+  });
+
+  document.getElementById('filter-year').addEventListener('change', (e) => {
+    state.filters[state.tab].year = e.target.value;
+    render();
+  });
+  document.getElementById('filter-artist').addEventListener('change', (e) => {
+    state.filters[state.tab].artist = e.target.value;
+    render();
+  });
+  document.getElementById('filter-proposed').addEventListener('change', (e) => {
+    state.filters[state.tab].proposed = e.target.value;
+    render();
+  });
+  document.getElementById('clear-filters-btn').addEventListener('click', () => {
+    state.search = '';
+    document.getElementById('search-input').value = '';
+    state.filters[state.tab] = state.tab === 'allups' ? { year: '', artist: '', proposed: '' } : { year: '', artist: '' };
+    populateFilterOptions();
+    render();
   });
 
   loadData();
