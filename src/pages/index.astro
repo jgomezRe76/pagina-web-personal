@@ -1,0 +1,130 @@
+---
+import Layout from '../layouts/Layout.astro';
+
+const skills = [
+  {
+    title: 'Cloud & Automatización',
+    detail: 'AWS (Solutions Architect Associate), VMware/vSphere, Terraform, Packer, Spacelift, GitHub Actions, Ansible.',
+  },
+  {
+    title: 'Seguridad & Cumplimiento',
+    detail: 'SOC 2, CrowdStrike, Tenable/Nessus, gestión de vulnerabilidades, patch management, User Access Reviews.',
+  },
+  {
+    title: 'Observabilidad & SIEM',
+    detail: 'CrowdStrike Falcon Next-Gen SIEM, Google Chronicle SecOps, Zabbix, Logstash/ELK.',
+  },
+  {
+    title: 'Infraestructura como Código',
+    detail: 'Migrando procesos manuales de parcheo y despliegue a infraestructura efímera, auditable y automatizada.',
+  },
+];
+
+const experience = [
+  {
+    period: '2021 — Actualidad',
+    role: 'Senior Infrastructure Engineer',
+    detail: 'Lidero SOC 2, migración de SIEM a Google Chronicle y CrowdStrike, y un pipeline de IaC para parcheo de AMIs con Packer + GitHub Actions.',
+  },
+  {
+    period: '2017 — 2021',
+    role: 'Ingeniero de Sistemas / Big Data',
+    detail: 'Clústeres Big Data internos, migración de Zimbra a Google Workspace y de Active Directory a Windows 2016.',
+  },
+  {
+    period: '2006 — 2017',
+    role: 'Administrador de Sistemas',
+    detail: 'Plan de contingencia con VMware y SAN HP EVA, seguridad perimetral y soporte a herramientas financieras críticas.',
+  },
+];
+---
+
+<Layout>
+  <section class="mx-auto max-w-4xl px-6 pt-20 pb-16 sm:pt-28">
+    <p class="font-mono text-sm text-indigo-400">Hola, soy</p>
+    <h1 class="mt-3 text-balance text-4xl font-extrabold tracking-tight text-zinc-50 sm:text-5xl">
+      Jaime Gómez Recasens
+    </h1>
+    <h2 class="mt-3 text-xl font-medium text-zinc-400 sm:text-2xl">
+      Senior Infrastructure &amp; Platform Engineer
+    </h2>
+    <p class="mt-6 max-w-2xl text-balance leading-relaxed text-zinc-400">
+      Más de 20 años de trayectoria en infraestructura de TI, los últimos años como Senior
+      Infrastructure Engineer liderando la fiabilidad de plataformas, la seguridad y la
+      automatización cloud sobre AWS y VMware. Combino solidez técnica y foco en resultados para
+      convertir procesos manuales en infraestructura como código, reduciendo riesgo, coste y
+      trabajo repetitivo.
+    </p>
+
+    <div class="mt-8 flex flex-wrap gap-3">
+      <a
+        href="https://www.linkedin.com/in/jaimegomezrecasens/"
+        target="_blank"
+        rel="noreferrer"
+        class="rounded-md bg-indigo-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-400"
+      >
+        Ver LinkedIn
+      </a>
+      <a
+        href="https://github.com/jgomezRe76"
+        target="_blank"
+        rel="noreferrer"
+        class="rounded-md border border-white/10 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-white/5"
+      >
+        Ver GitHub
+      </a>
+      <a
+        href="/cv-jaime-gomez-recasens.pdf"
+        target="_blank"
+        class="rounded-md border border-white/10 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-white/5"
+      >
+        Descargar CV
+      </a>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-4xl px-6 py-12">
+    <h3 class="font-mono text-sm text-indigo-400">Qué hago</h3>
+    <div class="mt-6 grid gap-4 sm:grid-cols-2">
+      {
+        skills.map((s) => (
+          <div class="rounded-lg border border-white/5 bg-white/[0.02] p-5">
+            <h4 class="font-medium text-zinc-100">{s.title}</h4>
+            <p class="mt-2 text-sm leading-relaxed text-zinc-400">{s.detail}</p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-4xl px-6 py-12">
+    <h3 class="font-mono text-sm text-indigo-400">Experiencia</h3>
+    <div class="mt-6 space-y-6 border-l border-white/10 pl-6">
+      {
+        experience.map((e) => (
+          <div class="relative">
+            <span class="absolute -left-[27px] top-1.5 h-2.5 w-2.5 rounded-full bg-indigo-400" />
+            <p class="font-mono text-xs text-zinc-500">{e.period}</p>
+            <p class="mt-1 font-medium text-zinc-100">{e.role}</p>
+            <p class="mt-1 text-sm leading-relaxed text-zinc-400">{e.detail}</p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-4xl px-6 py-12">
+    <h3 class="font-mono text-sm text-indigo-400">Proyectos</h3>
+    <div class="mt-6 rounded-lg border border-dashed border-white/10 p-6 text-sm text-zinc-500">
+      Próximamente — repositorio en construcción. Mientras tanto puedes ver mi actividad en
+      <a
+        href="https://github.com/jgomezRe76"
+        target="_blank"
+        rel="noreferrer"
+        class="text-indigo-400 hover:underline"
+      >
+        GitHub
+      </a>.
+    </div>
+  </section>
+</Layout>
