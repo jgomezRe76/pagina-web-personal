@@ -1,14 +1,404 @@
 ---
 import Layout from '../../layouts/Layout.astro';
+
+const CSV_ALLUPS =
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vTVT4xvx4Yk9IFWP_gXYNKo6N6sgp3A65yUT8c7dK7-cbpTCkz-s92wONHtL1JuZzMKh40d8iZkHiuw/pub?gid=2056315956&single=true&output=csv';
+const CSV_MENDANA =
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vTVT4xvx4Yk9IFWP_gXYNKo6N6sgp3A65yUT8c7dK7-cbpTCkz-s92wONHtL1JuZzMKh40d8iZkHiuw/pub?gid=255115182&single=true&output=csv';
 ---
 
 <Layout title="Club de discos · Jaime Gómez Recasens">
-  <section class="mx-auto max-w-4xl px-6 py-20">
+  <section class="mx-auto max-w-6xl px-6 py-20">
     <p class="font-mono text-sm text-indigo-400">ALL-UPS</p>
     <h1 class="mt-3 text-3xl font-bold text-zinc-50">Club de discos</h1>
     <p class="mt-4 max-w-2xl text-zinc-400">
-      Aquí irá el ranking en vivo de vuestro club de discos, sincronizado con la hoja de Sheets.
-      Esta sección se protegerá con Cloudflare Access para el grupo ALL-UPS.
+      Ranking en vivo, sincronizado con la hoja de Sheets del club.
     </p>
+
+    <!-- Tabs + búsqueda -->
+    <div class="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div class="flex gap-2" role="tablist">
+        <button
+          id="tab-allups-btn"
+          type="button"
+          class="tab-btn rounded-md px-4 py-2 text-sm font-medium transition-colors"
+          aria-selected="true"
+        >
+          ALL UPS
+        </button>
+        <button
+          id="tab-mendana-btn"
+          type="button"
+          class="tab-btn rounded-md px-4 py-2 text-sm font-medium transition-colors"
+          aria-selected="false"
+        >
+          Mendaña &amp; yo
+        </button>
+      </div>
+      <div class="relative w-full sm:w-64">
+        <input
+          id="search-input"
+          type="text"
+          placeholder="Buscar disco o artista…"
+          class="w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-indigo-400/50 focus:outline-none"
+        />
+      </div>
+    </div>
+
+    <p id="results-count" class="mt-4 font-mono text-xs text-zinc-600"></p>
+
+    <div id="status-message" class="mt-10 text-sm text-zinc-500">Cargando ranking…</div>
+
+    <div
+      id="cards-container"
+      class="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
+    >
+    </div>
   </section>
 </Layout>
+
+<style>
+  .tab-btn {
+    color: rgb(161 161 170); /* zinc-400 */
+    background: transparent;
+  }
+  .tab-btn[aria-selected='true'] {
+    background: rgba(99, 102, 241, 0.15); /* indigo-500/15 */
+    color: rgb(199 210 254); /* indigo-200 */
+  }
+  .tab-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+</style>
+
+<script define:vars={{ CSV_ALLUPS, CSV_MENDANA }}>
+  // ---------- CSV parsing ----------
+  function parseCSV(text) {
+    const rows = [];
+    let row = [];
+    let field = '';
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i + 1] === '"') {
+            field += '"';
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          field += c;
+        }
+      } else if (c === '"') {
+        inQuotes = true;
+      } else if (c === ',') {
+        row.push(field);
+        field = '';
+      } else if (c === '\n') {
+        row.push(field);
+        field = '';
+        rows.push(row);
+        row = [];
+      } else if (c === '\r') {
+        // skip
+      } else {
+        field += c;
+      }
+    }
+    if (field.length > 0 || row.length > 0) {
+      row.push(field);
+      rows.push(row);
+    }
+    return rows.filter((r) => r.some((c) => c.trim() !== ''));
+  }
+
+  function rowsToObjects(rows) {
+    const headers = rows[0].map((h) => h.trim());
+    return rows.slice(1).map((r) => {
+      const obj = {};
+      headers.forEach((h, idx) => {
+        obj[h] = (r[idx] ?? '').trim();
+      });
+      return obj;
+    });
+  }
+
+  function parseScore(raw) {
+    if (!raw) return null;
+    const n = parseFloat(raw.replace(',', '.'));
+    return isNaN(n) ? null : n;
+  }
+
+  function formatScore(raw) {
+    const n = parseScore(raw);
+    if (n === null) return '—';
+    return n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '').replace('.', ',');
+  }
+
+  // ---------- Data loading ----------
+  const state = {
+    tab: 'allups',
+    search: '',
+    allups: [],
+    mendana: [],
+    loaded: false,
+  };
+
+  async function fetchCSV(url) {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    return rowsToObjects(parseCSV(text));
+  }
+
+  async function loadData() {
+    const statusEl = document.getElementById('status-message');
+    try {
+      const [allupsRaw, mendanaRaw] = await Promise.all([
+        fetchCSV(CSV_ALLUPS),
+        fetchCSV(CSV_MENDANA),
+      ]);
+
+      state.allups = allupsRaw
+        .map((r) => ({
+          album: r['Disco propuesto'] || r['Disco'] || '',
+          artist: r['Intérprete'] || '',
+          proposedBy: r['Propuesto'] || '',
+          year: r['Año'] || '',
+          notaRaw: r['Nota'] || '',
+          nota: parseScore(r['Nota']),
+        }))
+        .filter((r) => r.album && r.nota !== null)
+        .sort((a, b) => b.nota - a.nota);
+
+      state.mendana = mendanaRaw
+        .map((r) => ({
+          album: r['Disco'] || '',
+          artist: r['Intérprete'] || '',
+          votosMendana: r['Votos/Mendaña'] || '',
+          votosJaime: r['Votos/Jaime'] || '',
+          year: r['Año'] || '',
+          notaRaw: r['Nota'] || '',
+          nota: parseScore(r['Nota']),
+        }))
+        .filter((r) => r.album && r.nota !== null)
+        .sort((a, b) => b.nota - a.nota);
+
+      state.loaded = true;
+      statusEl.classList.add('hidden');
+      render();
+    } catch (err) {
+      statusEl.textContent =
+        'No se pudo cargar el ranking en este momento. Prueba a recargar la página en unos segundos.';
+      statusEl.classList.remove('hidden');
+      console.error('Error cargando el ranking del club de discos', err);
+    }
+  }
+
+  // ---------- Cover art (iTunes Search API via JSONP) ----------
+  const CACHE_KEY = 'clubDeDiscos:coverCache:v1';
+  let coverCache;
+  try {
+    coverCache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+  } catch {
+    coverCache = {};
+  }
+  function saveCache() {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(coverCache));
+    } catch {
+      /* storage full or unavailable, ignore */
+    }
+  }
+
+  let jsonpCounter = 0;
+  function jsonpRequest(url) {
+    return new Promise((resolve, reject) => {
+      const cbName = `__itunesCb${jsonpCounter++}_${Date.now()}`;
+      const script = document.createElement('script');
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('timeout'));
+      }, 6000);
+      function cleanup() {
+        delete window[cbName];
+        script.remove();
+        clearTimeout(timeout);
+      }
+      window[cbName] = (data) => {
+        cleanup();
+        resolve(data);
+      };
+      script.onerror = () => {
+        cleanup();
+        reject(new Error('script error'));
+      };
+      script.src = `${url}&callback=${cbName}`;
+      document.head.appendChild(script);
+    });
+  }
+
+  const artQueue = [];
+  let artProcessing = false;
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+  function enqueueArtwork(item) {
+    artQueue.push(item);
+    processArtQueue();
+  }
+  async function processArtQueue() {
+    if (artProcessing) return;
+    artProcessing = true;
+    while (artQueue.length) {
+      const item = artQueue.shift();
+      await resolveArtwork(item);
+      await sleep(200);
+    }
+    artProcessing = false;
+  }
+  async function resolveArtwork({ key, artist, album, imgEl, placeholderEl }) {
+    if (!imgEl.isConnected) return;
+    if (Object.prototype.hasOwnProperty.call(coverCache, key)) {
+      applyArtwork(imgEl, placeholderEl, coverCache[key]);
+      return;
+    }
+    try {
+      const term = encodeURIComponent(`${artist} ${album}`);
+      const data = await jsonpRequest(
+        `https://itunes.apple.com/search?term=${term}&entity=album&limit=1`
+      );
+      const first = data && data.results && data.results[0];
+      const url = first ? first.artworkUrl100.replace('100x100bb', '400x400bb') : null;
+      coverCache[key] = url;
+      saveCache();
+      applyArtwork(imgEl, placeholderEl, url);
+    } catch {
+      coverCache[key] = null;
+      saveCache();
+      applyArtwork(imgEl, placeholderEl, null);
+    }
+  }
+  function applyArtwork(imgEl, placeholderEl, url) {
+    if (!url || !imgEl.isConnected) return;
+    imgEl.onload = () => {
+      imgEl.classList.remove('opacity-0');
+      placeholderEl.classList.add('hidden');
+    };
+    imgEl.src = url;
+  }
+
+  let observer;
+  function getObserver() {
+    if (observer) observer.disconnect();
+    observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const el = entry.target;
+            observer.unobserve(el);
+            const { key, artist, album } = el.dataset;
+            const imgEl = el.querySelector('[data-cover]');
+            const placeholderEl = el.querySelector('[data-placeholder]');
+            enqueueArtwork({ key, artist, album, imgEl, placeholderEl });
+          }
+        });
+      },
+      { rootMargin: '250px' }
+    );
+    return observer;
+  }
+
+  // ---------- Rendering ----------
+  const MEDALS = ['🥇', '🥈', '🥉'];
+
+  function cardHTML(item, index, tab) {
+    const rankLabel = MEDALS[index] || `#${index + 1}`;
+    const key = `${item.artist}::${item.album}`.toLowerCase();
+    let extra;
+    if (tab === 'allups') {
+      extra = `Propuesto por ${escapeHTML(item.proposedBy || '—')}`;
+    } else {
+      extra = `Mendaña ${item.votosMendana || '—'} · Jaime ${item.votosJaime || '—'}`;
+    }
+    return `
+      <div class="card group relative overflow-hidden rounded-lg border border-white/5 bg-white/[0.02] transition-colors hover:border-indigo-400/30"
+           data-key="${escapeAttr(key)}" data-artist="${escapeAttr(item.artist)}" data-album="${escapeAttr(item.album)}">
+        <div class="relative aspect-square w-full overflow-hidden bg-zinc-900">
+          <div data-placeholder class="absolute inset-0 flex items-center justify-center text-3xl text-zinc-700">💿</div>
+          <img data-cover loading="lazy" alt="" class="h-full w-full object-cover opacity-0 transition-opacity duration-300" />
+          <span class="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-0.5 font-mono text-xs font-bold text-white backdrop-blur">${rankLabel}</span>
+        </div>
+        <div class="p-3">
+          <p class="truncate text-sm font-medium text-zinc-100" title="${escapeAttr(item.album)}">${escapeHTML(item.album)}</p>
+          <p class="truncate text-xs text-zinc-500" title="${escapeAttr(item.artist)}">${escapeHTML(item.artist)}</p>
+          <div class="mt-2 flex items-center justify-between gap-2">
+            <span class="rounded-md bg-indigo-500/10 px-2 py-0.5 font-mono text-xs font-bold text-indigo-300">${item.notaRaw || formatScore(item.notaRaw)}</span>
+            <span class="truncate text-[11px] text-zinc-600" title="${escapeAttr(extra)}">${escapeHTML(extra)}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function escapeHTML(str) {
+    const div = document.createElement('div');
+    div.textContent = str ?? '';
+    return div.innerHTML;
+  }
+  function escapeAttr(str) {
+    return (str ?? '').replace(/"/g, '&quot;');
+  }
+
+  function currentDataset() {
+    return state.tab === 'allups' ? state.allups : state.mendana;
+  }
+
+  function render() {
+    if (!state.loaded) return;
+    const container = document.getElementById('cards-container');
+    const countEl = document.getElementById('results-count');
+    const term = state.search.trim().toLowerCase();
+    const dataset = currentDataset();
+    const filtered = term
+      ? dataset.filter(
+          (i) =>
+            i.album.toLowerCase().includes(term) || i.artist.toLowerCase().includes(term)
+        )
+      : dataset;
+
+    countEl.textContent = `${filtered.length} discos`;
+
+    const io = getObserver();
+    container.innerHTML = filtered.map((item, idx) => cardHTML(item, idx, state.tab)).join('');
+    container.querySelectorAll('.card').forEach((el) => io.observe(el));
+  }
+
+  function setTab(tab) {
+    state.tab = tab;
+    document
+      .getElementById('tab-allups-btn')
+      .setAttribute('aria-selected', String(tab === 'allups'));
+    document
+      .getElementById('tab-mendana-btn')
+      .setAttribute('aria-selected', String(tab === 'mendana'));
+    render();
+  }
+
+  document.getElementById('tab-allups-btn').addEventListener('click', () => setTab('allups'));
+  document.getElementById('tab-mendana-btn').addEventListener('click', () => setTab('mendana'));
+
+  let searchTimeout;
+  document.getElementById('search-input').addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    const value = e.target.value;
+    searchTimeout = setTimeout(() => {
+      state.search = value;
+      render();
+    }, 150);
+  });
+
+  loadData();
+</script>
