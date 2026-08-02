@@ -97,11 +97,18 @@ const CSV_MENDANA =
     background: rgba(255, 255, 255, 0.05);
   }
 
-  /* Los <select> nativos no heredan el tema oscuro del sitio; sin esto el
-     desplegable sale con fondo blanco y texto claro, ilegible. */
   .filter-select {
     color-scheme: dark;
   }
+</style>
+
+<style is:global>
+  /* Las <option> de los filtros se generan por JS (innerHTML) en tiempo de
+     ejecución, así que el CSS con scope de Astro (arriba) nunca les llega:
+     el scoping solo se aplica a elementos que existen en la plantilla
+     compilada, no a los que crea el script después. Por eso salían en
+     blanco solo las opciones reales (año, artista...) y no el placeholder
+     "todos", que sí está en la plantilla. Este bloque global sí las alcanza. */
   .filter-select option {
     background-color: #18181b; /* zinc-900 */
     color: #e4e4e7; /* zinc-200 */
@@ -282,14 +289,14 @@ const CSV_MENDANA =
   }
 
   let jsonpCounter = 0;
-  function jsonpRequest(url) {
+  function jsonpRequest(url, ms = 6000) {
     return new Promise((resolve, reject) => {
       const cbName = `__itunesCb${jsonpCounter++}_${Date.now()}`;
       const script = document.createElement('script');
       const timeout = setTimeout(() => {
         cleanup();
         reject(new Error('timeout'));
-      }, 6000);
+      }, ms);
       function cleanup() {
         delete window[cbName];
         script.remove();
@@ -308,25 +315,46 @@ const CSV_MENDANA =
     });
   }
 
-  const artQueue = [];
-  let artProcessing = false;
   function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
   }
+
+  // fetch() no tiene timeout por defecto: si una petición se queda colgada,
+  // bloquea ese hueco de la cola indefinidamente. Forzamos un límite.
+  async function fetchWithTimeout(url, ms = 5000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    try {
+      return await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // Cola con varios "carriles" en paralelo: si una portada se atasca (rate
+  // limit, timeout...) ya no bloquea a las que van detrás en la fila.
+  const artQueue = [];
+  const CONCURRENT_LANES = 3;
+  let lanesRunning = 0;
   function enqueueArtwork(item) {
     artQueue.push(item);
-    processArtQueue();
+    fillLanes();
   }
-  async function processArtQueue() {
-    if (artProcessing) return;
-    artProcessing = true;
+  function fillLanes() {
+    while (lanesRunning < CONCURRENT_LANES && artQueue.length) {
+      lanesRunning++;
+      runLane();
+    }
+  }
+  async function runLane() {
     while (artQueue.length) {
       const item = artQueue.shift();
       await resolveArtwork(item);
-      await sleep(200);
+      await sleep(120);
     }
-    artProcessing = false;
+    lanesRunning--;
   }
+
   // Fuentes de portadas, en orden. iTunes suele ser rápido y cubre lo más
   // mainstream; Deezer y Discogs rescatan bastante de lo más indie/raro que
   // no está en Apple Music.
@@ -334,7 +362,8 @@ const CSV_MENDANA =
     try {
       const term = encodeURIComponent(`${artist} ${album}`);
       const data = await jsonpRequest(
-        `https://itunes.apple.com/search?term=${term}&entity=album&limit=1`
+        `https://itunes.apple.com/search?term=${term}&entity=album&limit=1`,
+        5000
       );
       const first = data && data.results && data.results[0];
       return first ? first.artworkUrl100.replace('100x100bb', '400x400bb') : null;
@@ -346,12 +375,12 @@ const CSV_MENDANA =
   async function tryDeezer(artist, album) {
     try {
       const qualified = encodeURIComponent(`artist:"${artist}" album:"${album}"`);
-      let res = await fetch(`https://api.deezer.com/search/album?q=${qualified}&limit=1`);
+      let res = await fetchWithTimeout(`https://api.deezer.com/search/album?q=${qualified}&limit=1`);
       let data = await res.json();
       let hit = data && data.data && data.data[0];
       if (!hit) {
         const loose = encodeURIComponent(`${artist} ${album}`);
-        res = await fetch(`https://api.deezer.com/search/album?q=${loose}&limit=1`);
+        res = await fetchWithTimeout(`https://api.deezer.com/search/album?q=${loose}&limit=1`);
         data = await res.json();
         hit = data && data.data && data.data[0];
       }
@@ -364,7 +393,7 @@ const CSV_MENDANA =
   async function tryDiscogs(artist, album) {
     try {
       const q = encodeURIComponent(`${artist} ${album}`);
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         `https://api.discogs.com/database/search?q=${q}&type=release&per_page=1`
       );
       const data = await res.json();
