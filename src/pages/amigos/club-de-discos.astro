@@ -262,8 +262,11 @@ const CSV_MENDANA =
     }
   }
 
-  // ---------- Cover art (iTunes Search API via JSONP) ----------
-  const CACHE_KEY = 'clubDeDiscos:coverCache:v1';
+  // ---------- Cover art (iTunes / Deezer / Discogs) ----------
+  // v2: antes de añadir Deezer/Discogs como fallback, los discos que iTunes no
+  // encontraba quedaban cacheados como "null" para siempre. Subimos la versión
+  // para descartar esa caché vieja y darles una nueva oportunidad.
+  const CACHE_KEY = 'clubDeDiscos:coverCache:v2';
   let coverCache;
   try {
     coverCache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
@@ -374,7 +377,10 @@ const CSV_MENDANA =
 
   async function resolveArtwork({ key, artist, album, imgEl, placeholderEl }) {
     if (!imgEl.isConnected) return;
-    if (Object.prototype.hasOwnProperty.call(coverCache, key)) {
+    // Solo confiamos en la caché cuando SÍ encontramos portada. Un "no
+    // encontrado" no se guarda, para que en la próxima visita (o si añadimos
+    // una fuente nueva) se vuelva a intentar en vez de quedarse atascado.
+    if (coverCache[key]) {
       applyArtwork(imgEl, placeholderEl, coverCache[key]);
       return;
     }
@@ -387,8 +393,10 @@ const CSV_MENDANA =
       await sleep(150);
       url = await tryDiscogs(artist, album);
     }
-    coverCache[key] = url;
-    saveCache();
+    if (url) {
+      coverCache[key] = url;
+      saveCache();
+    }
     applyArtwork(imgEl, placeholderEl, url);
   }
   function applyArtwork(imgEl, placeholderEl, url) {
